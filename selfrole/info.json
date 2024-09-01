@@ -1,0 +1,14 @@
+{
+  "author": ["unknown.in"],
+  "description": "A simple selfrole system but with slash commands.",
+  "disabled": false,
+  "end_user_data_statement": "This cog stores role discord ID's",
+  "hidden": false,
+  "install_msg": "Thank you for installing SelfRole! This cog is slash/application commands only. Please enable commands using `[p]slash enablecog selfrole` or `[p]slash enable selfrole` and `[p]slash enable selfroleset`.",
+  "min_bot_version": "3.5.10",
+  "min_python_version": [3, 10, 0],
+  "required_cogs": {},
+  "short": "Self Role",
+  "tags": ["role", "selfrole", "utility"],
+  "type": "COG"
+}
