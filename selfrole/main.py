@@ -48,6 +48,12 @@ class SelfRole(commands.Cog):
         await self.bot.wait_until_red_ready()
         self.guild_cache = await self.config.all_guilds()
 
+    def is_guild_owner():
+        def predicate(interaction: discord.Interaction) -> bool:
+            return interaction.user.id == interaction.guild.owner_id
+
+        return app_commands.check(predicate)
+
     selfrole = app_commands.Group(
         name="selfrole",
         description="Base command to add/remove selfrole",
@@ -170,6 +176,7 @@ class SelfRole(commands.Cog):
         description="Allows roles with enhanced permissions to be added in selfrole list",
     )
     @app_commands.guild_only()
+    @is_guild_owner()
     async def selfroleset_allow_dangerous_role(self, interaction: discord.Interaction, status: bool):
         default_guild = {"roles": [], "allow_dangerous_role": False}
         self.guild_cache.setdefault(interaction.guild.id, default_guild)
