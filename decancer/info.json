@@ -1,0 +1,15 @@
+{
+  "author": ["unknown.in", "KableKompany", "PhenoM4n4n"],
+  "description": "Clears special characters, and accented characters from usernames. Customize default fallback name on unsuccessful decancer and translates glyphs",
+  "disabled": false,
+  "end_user_data_statement": "This cog does not persistently store data or metadata about users.",
+  "hidden": false,
+  "install_msg": "Thank you for installing Denancer!",
+  "min_bot_version": "3.5.10",
+  "min_python_version": [3, 10, 0],
+  "requirements": ["stringcase", "unidecode"],
+  "required_cogs": {},
+  "short": "Decancer users names removing special and accented chars. `[p]decancerset` to get started if you're already using redbot core modlog",
+  "tags": ["decancer", "moderation", "decancer"],
+  "type": "COG"
+}
