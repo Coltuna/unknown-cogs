@@ -1,14 +1,14 @@
 {
   "author": ["unknown.in"],
-  "description": "A simple selfrole system but with slash commands.",
+  "description": "A selfrole system featuring slash commands for members and prefix commands for administrators.",
   "disabled": false,
-  "end_user_data_statement": "This cog stores role discord ID's",
+  "end_user_data_statement": "This cog stores Discord role IDs configured as selfroles.",
   "hidden": false,
-  "install_msg": "Thank you for installing SelfRole! This cog is slash/application commands only. Please enable commands using `[p]slash enablecog selfrole` or `[p]slash enable selfrole` and `[p]slash enable selfroleset`.",
+  "install_msg": "Thank you for installing SelfRole! Members can use `/selfrole` slash commands, while server managers can configure roles using `[p]selfroleset` prefix commands.",
   "min_bot_version": "3.5.10",
   "min_python_version": [3, 10, 0],
   "required_cogs": {},
-  "short": "Self Role",
+  "short": "Self-assignable roles with slash commands for users and prefix commands for admins.",
   "tags": ["role", "selfrole", "utility"],
   "type": "COG"
 }

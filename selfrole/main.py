@@ -1,21 +1,39 @@
 import asyncio
 import logging
-from typing import List
 import typing
 
 import discord
-from redbot.core import commands, Config, app_commands
+from redbot.core import Config, app_commands, checks, commands
 from redbot.core.bot import Red
 from redbot.core.utils.chat_formatting import box
 
 log = logging.getLogger("red.unknown.selfrole")
 
+_DANGEROUS_PERMISSIONS_VALUE: int = discord.Permissions(
+    administrator=True,
+    ban_members=True,
+    kick_members=True,
+    manage_channels=True,
+    manage_emojis=True,
+    manage_events=True,
+    manage_guild=True,
+    manage_messages=True,
+    manage_nicknames=True,
+    manage_roles=True,
+    manage_threads=True,
+    manage_webhooks=True,
+    mention_everyone=True,
+    moderate_members=True,
+).value
+
 
 class SelfRole(commands.Cog):
-    """Description"""
+    """
+    Self-assignable roles with slash commands for users and management text commands for admins.
+    """
 
     __author__ = "unknown.in"
-    __version__ = "0.0.1"
+    __version__ = "0.1.0"
 
     def __init__(self, bot: Red):
         super().__init__()
@@ -24,8 +42,8 @@ class SelfRole(commands.Cog):
         default_guild = {"roles": [], "allow_dangerous_role": False}
         self.config.register_guild(**default_guild)
 
-        # Cache
-        self.guild_cache = {}
+        # In-memory cache
+        self.guild_cache: dict[int, dict] = {}
 
     def format_help_for_context(self, ctx: commands.Context):
         helpcmd = super().format_help_for_context(ctx)
@@ -48,174 +66,195 @@ class SelfRole(commands.Cog):
         await self.bot.wait_until_red_ready()
         self.guild_cache = await self.config.all_guilds()
 
-    def is_guild_owner():
-        def predicate(interaction: discord.Interaction) -> bool:
-            return interaction.user.id == interaction.guild.owner_id
+    def _get_guild_data(self, guild_id: int) -> dict:
+        if guild_id not in self.guild_cache:
+            self.guild_cache[guild_id] = {"roles": [], "allow_dangerous_role": False}
+        return self.guild_cache[guild_id]
 
-        return app_commands.check(predicate)
+    def _prune_and_get_roles(self, guild: discord.Guild) -> tuple[list[discord.Role], bool]:
+        guild_data = self._get_guild_data(guild.id)
+        role_ids: list[int] = list(guild_data.get("roles", []))
+        allow_dangerous = guild_data.get("allow_dangerous_role", False)
+
+        valid_roles: list[discord.Role] = []
+        invalid_role_ids: list[int] = []
+        for r_id in role_ids:
+            role = guild.get_role(r_id)
+            if role is not None:
+                valid_roles.append(role)
+            else:
+                invalid_role_ids.append(r_id)
+
+        if invalid_role_ids:
+            cleaned_roles = [r_id for r_id in role_ids if r_id not in invalid_role_ids]
+            guild_data["roles"] = cleaned_roles
+            asyncio.create_task(self.config.guild(guild).roles.set(cleaned_roles))
+
+        return valid_roles, allow_dangerous
+
+    @commands.Cog.listener()
+    async def on_guild_role_delete(self, role: discord.Role) -> None:
+        guild_data = self.guild_cache.get(role.guild.id)
+        if guild_data and role.id in guild_data.get("roles", []):
+            roles = [r_id for r_id in guild_data["roles"] if r_id != role.id]
+            guild_data["roles"] = roles
+            await self.config.guild(role.guild).roles.set(roles)
 
     selfrole = app_commands.Group(
         name="selfrole",
-        description="Base command to add/remove selfrole",
+        description="Add, remove, or list self-assignable roles",
         guild_only=True,
     )
 
-    selfroleset = app_commands.Group(
-        name="selfroleset",
-        description="Base command to set selfrole list",
-        guild_only=True,
-    )
-
-    @selfrole.command(name="add", description="Add a role to yourself.")
+    @selfrole.command(name="add", description="Add a self-assignable role to yourself.")
     @app_commands.guild_only()
     async def selfrole_add(self, interaction: discord.Interaction, role: discord.Role):
-        guild_data = self.guild_cache.get(interaction.guild.id)
-        if guild_data is None or role.id not in guild_data.get("roles"):
+        guild_data = self._get_guild_data(interaction.guild.id)
+        if role.id not in guild_data.get("roles", []):
             return await interaction.response.send_message(
-                f"{role.mention} is not assigned to be a selfrole.", ephemeral=True
+                f"{role.mention} is not configured as a self-assignable role.", ephemeral=True
+            )
+        if role in interaction.user.roles:
+            return await interaction.response.send_message("You already have that role.", ephemeral=True)
+        if not interaction.guild.me.guild_permissions.manage_roles or interaction.guild.me.top_role <= role:
+            return await interaction.response.send_message(
+                "I do not have sufficient permissions or role hierarchy to assign that role.", ephemeral=True
             )
         try:
-            if role in interaction.user.roles:
-                return await interaction.response.send_message("You already have that role.", ephemeral=True)
-            await interaction.user.add_roles(role, reason="Selfrole command triggered.")
-            await interaction.response.send_message("Role added.", ephemeral=True)
+            await interaction.user.add_roles(role, reason="SelfRole slash command")
+            await interaction.response.send_message(f"Added the {role.name} role.", ephemeral=True)
         except discord.Forbidden:
-            await interaction.response.send_message("I do not have enough permission to add that role.")
+            await interaction.response.send_message("I do not have permission to add that role.", ephemeral=True)
         except discord.HTTPException as ex:
-            await interaction.response.send_message("Something went wrong...")
+            await interaction.response.send_message("Something went wrong while adding the role.", ephemeral=True)
             log.error(ex)
-        except Exception as e:
-            log.error(e)
 
-    @selfrole.command(name="remove", description="Remove a role from yourself")
+    @selfrole.command(name="remove", description="Remove a self-assignable role from yourself.")
     @app_commands.guild_only()
     async def selfrole_remove(self, interaction: discord.Interaction, role: discord.Role):
-        guild_data = self.guild_cache.get(interaction.guild.id)
-        if guild_data is None or role.id not in guild_data.get("roles"):
+        guild_data = self._get_guild_data(interaction.guild.id)
+        if role.id not in guild_data.get("roles", []):
             return await interaction.response.send_message(
-                f"{role.mention} is not assigned to be a selfrole.", ephemeral=True
+                f"{role.mention} is not configured as a self-assignable role.", ephemeral=True
+            )
+        if role not in interaction.user.roles:
+            return await interaction.response.send_message("You do not have that role.", ephemeral=True)
+        if not interaction.guild.me.guild_permissions.manage_roles or interaction.guild.me.top_role <= role:
+            return await interaction.response.send_message(
+                "I do not have sufficient permissions or role hierarchy to remove that role.", ephemeral=True
             )
         try:
-            if role not in interaction.user.roles:
-                return await interaction.response.send_message(
-                    "You don't have that role already.", ephemeral=True
-                )
-            await interaction.user.remove_roles(role, reason="Selfrole command triggered.")
-            await interaction.response.send_message("Role removed.", ephemeral=True)
+            await interaction.user.remove_roles(role, reason="SelfRole slash command")
+            await interaction.response.send_message(f"Removed the {role.name} role.", ephemeral=True)
         except discord.Forbidden:
-            await interaction.response.send_message("I do not have enough permission to remove that role.")
+            await interaction.response.send_message("I do not have permission to remove that role.", ephemeral=True)
         except discord.HTTPException as ex:
-            await interaction.response.send_message("Something went wrong...")
+            await interaction.response.send_message("Something went wrong while removing the role.", ephemeral=True)
             log.error(ex)
-        except Exception as e:
-            log.error(e)
 
-    @selfrole.command(name="list", description="List all self assignable role list.")
+    @selfrole.command(name="list", description="List all self-assignable roles.")
     @app_commands.guild_only()
-    async def selfroleset_list(self, interaction: discord.Interaction):
-        default_guild = {"roles": [], "allow_dangerous_role": False}
-        self.guild_cache.setdefault(interaction.guild.id, default_guild)
-        guild_data = self.guild_cache.get(interaction.guild.id)
-        role_ids = guild_data["roles"]
-        allow_dangerous_role = guild_data["allow_dangerous_role"]
-        if len(role_ids) == 0:
-            return await interaction.response.send_message("There are currently no selfroles.")
-        roles = [interaction.guild.get_role(role_id) for role_id in role_ids]
-        formatted_selfroles = "\n".join(["+ " + r.name for r in roles])
-        msg = f"Allow Dangerous Roles:\n{allow_dangerous_role}\nAvailable Selfroles:\n{formatted_selfroles}"
+    async def selfrole_list(self, interaction: discord.Interaction):
+        valid_roles, allow_dangerous = self._prune_and_get_roles(interaction.guild)
+        if not valid_roles:
+            return await interaction.response.send_message("There are currently no selfroles available.", ephemeral=True)
+
+        formatted_selfroles = "\n".join(["+ " + r.name for r in valid_roles])
+        msg = f"Allow Dangerous Roles:\n{allow_dangerous}\n\nAvailable Selfroles:\n{formatted_selfroles}"
         await interaction.response.send_message(box(msg, "diff"))
 
-    @selfroleset.command(name="add", description="Add a role to selfrole set")
-    @app_commands.guild_only()
-    @app_commands.checks.has_permissions(administrator=True)
-    async def selfroleset_add(self, interaction: discord.Interaction, role: discord.Role):
-        default_guild = {"roles": [], "allow_dangerous_role": False}
-        self.guild_cache.setdefault(interaction.guild.id, default_guild)
-        guild_data = self.guild_cache.get(interaction.guild.id)
-        if role.id in guild_data.get("roles"):
-            return await interaction.response.send_message(
-                f"{role.mention} is already a self assignable role."
+    @commands.guild_only()
+    @checks.admin_or_permissions(manage_roles=True)
+    @commands.group(name="selfroleset")
+    async def selfroleset(self, ctx: commands.Context) -> None:
+        """
+        Manage self-assignable roles for this server.
+        """
+        pass
+
+    @selfroleset.command(name="add")
+    async def selfroleset_add(self, ctx: commands.Context, *, role: discord.Role) -> None:
+        """
+        Add a role to the list of self-assignable roles.
+        """
+        guild_data = self._get_guild_data(ctx.guild.id)
+        if role.id in guild_data.get("roles", []):
+            return await ctx.send(f"{role.mention} is already a self-assignable role.")
+
+        if not self.pass_member_hierarchy_check(ctx.author, ctx.guild, role):
+            return await ctx.send(
+                f"I cannot let you add **{role.name}** as a selfrole because that role is higher than or equal to your highest role in the Discord hierarchy."
             )
-        if not self.pass_member_hierarchy_check(interaction, role):
-            return await interaction.response.send_message(
-                f"I cannot let you add {role.name} as a selfrole because that role is higher than or equal to your highest role in the Discord hierarchy."
+
+        if not guild_data.get("allow_dangerous_role", False) and not self.pass_dangerous_role_check(role):
+            return await ctx.send(
+                f"**{role.name}** has dangerous permissions. If you really wish to make this role self-assignable, please enable the setting via `{ctx.prefix}selfroleset allow_dangerous_role true`."
             )
-        if (
-            guild_data["allow_dangerous_role"] == False
-            and self.pass_dangerous_role_check(interaction, role) == False
-        ):
-            return await interaction.response.send_message(
-                rf"{role.name} is a dangerous role. If you really wish to make this role as selfrole please change the setting via `\selfroleset allow_dangerous_role`"
-            )
-        roles = self.guild_cache[interaction.guild.id]["roles"]
+
+        roles = list(guild_data.get("roles", []))
         roles.append(role.id)
-        self.guild_cache[interaction.guild.id]["roles"] = roles
-        await self.config.guild(interaction.guild).roles.set(roles)
-        await interaction.response.send_message(f"{role.name} is now added into self assignable role list.")
+        guild_data["roles"] = roles
+        await self.config.guild(ctx.guild).roles.set(roles)
+        await ctx.send(f"**{role.name}** is now added to the self-assignable roles list.")
 
-    @selfroleset.command(name="remove", description="Remove a role from selfrole set")
-    @app_commands.guild_only()
-    @app_commands.checks.has_permissions(administrator=True)
-    async def selfroleset_remove(self, interaction: discord.Interaction, role: discord.Role):
-        default_guild = {"roles": [], "allow_dangerous_role": False}
-        self.guild_cache.setdefault(interaction.guild.id, default_guild)
-        guild_data = self.guild_cache.get(interaction.guild.id)
-        if role.id not in guild_data["roles"]:
-            return await interaction.response.send_message(
-                f"{role.name} is not in self assignable role list."
-            )
+    @selfroleset.command(name="remove")
+    async def selfroleset_remove(self, ctx: commands.Context, *, role: typing.Union[discord.Role, int]) -> None:
+        """
+        Remove a role from the list of self-assignable roles.
 
-        roles = self.guild_cache[interaction.guild.id]["roles"]
-        roles.remove(role.id)
-        self.guild_cache[interaction.guild.id]["roles"] = roles
-        await self.config.guild(interaction.guild).roles.set(roles)
-        await interaction.response.send_message(f"{role.name} is removed from self assignable role list.")
+        Accepts a role mention, name, or role ID (useful if the role was deleted).
+        """
+        guild_data = self._get_guild_data(ctx.guild.id)
+        roles = list(guild_data.get("roles", []))
 
-    @selfroleset.command(
-        name="allow_dangerous_role",
-        description="Allows roles with enhanced permissions to be added in selfrole list",
-    )
-    @app_commands.guild_only()
-    @is_guild_owner()
-    async def selfroleset_allow_dangerous_role(self, interaction: discord.Interaction, status: bool):
-        default_guild = {"roles": [], "allow_dangerous_role": False}
-        self.guild_cache.setdefault(interaction.guild.id, default_guild)
-        self.guild_cache[interaction.guild.id]["allow_dangerous_role"] = status
-        await self.config.guild(interaction.guild).allow_dangerous_role.set(status)
-        if status == False:
-            await interaction.response.send_message("Addition of dangerous role is now disabled.")
+        role_id = role.id if isinstance(role, discord.Role) else role
+        role_name = role.name if isinstance(role, discord.Role) else f"ID {role}"
+
+        if role_id not in roles:
+            return await ctx.send(f"**{role_name}** is not in the self-assignable roles list.")
+
+        roles.remove(role_id)
+        guild_data["roles"] = roles
+        await self.config.guild(ctx.guild).roles.set(roles)
+        await ctx.send(f"**{role_name}** has been removed from the self-assignable roles list.")
+
+    @checks.guildowner_or_permissions(administrator=True)
+    @selfroleset.command(name="allow_dangerous_role", aliases=["allowdangerous"])
+    async def selfroleset_allow_dangerous_role(self, ctx: commands.Context, status: bool) -> None:
+        """
+        Allow or disallow roles with elevated permissions to be configured as selfroles.
+        """
+        guild_data = self._get_guild_data(ctx.guild.id)
+        guild_data["allow_dangerous_role"] = status
+        await self.config.guild(ctx.guild).allow_dangerous_role.set(status)
+        if status:
+            await ctx.send("Addition of dangerous roles is now **enabled**.")
         else:
-            await interaction.response.send_message("Addition of dangerous role is now enabled.")
+            await ctx.send("Addition of dangerous roles is now **disabled**.")
+
+    @selfroleset.command(name="list")
+    async def selfroleset_admin_list(self, ctx: commands.Context) -> None:
+        """
+        List all configured self-assignable roles.
+        """
+        valid_roles, allow_dangerous = self._prune_and_get_roles(ctx.guild)
+        if not valid_roles:
+            return await ctx.send("There are currently no selfroles configured.")
+
+        formatted_selfroles = "\n".join(["+ " + r.name for r in valid_roles])
+        msg = f"Allow Dangerous Roles:\n{allow_dangerous}\n\nConfigured Selfroles:\n{formatted_selfroles}"
+        await ctx.send(box(msg, "diff"))
 
     @staticmethod
-    def pass_member_hierarchy_check(interaction: discord.Interaction, role: discord.Role) -> bool:
+    def pass_member_hierarchy_check(member: discord.Member, guild: discord.Guild, role: discord.Role) -> bool:
         """
         Determines if a member is allowed to add/remove/edit the given role.
         """
-        return interaction.user.top_role > role or interaction.user == interaction.guild.owner
+        return member.top_role > role or member == guild.owner
 
     @staticmethod
-    def pass_dangerous_role_check(interaction: discord.Interaction, role: discord.Role) -> bool:
+    def pass_dangerous_role_check(role: discord.Role) -> bool:
         """
-        Determines if a role is having dangerous permission or not.
-        Returns False in case role has any of the below permissions.
+        Determines if a role has dangerous permissions using bitwise masking.
         """
-        return (
-            role.permissions
-            & discord.Permissions(
-                administrator=True,
-                ban_members=True,
-                kick_members=True,
-                manage_channels=True,
-                manage_emojis=True,
-                manage_events=True,
-                manage_guild=True,
-                manage_messages=True,
-                manage_nicknames=True,
-                manage_roles=True,
-                manage_threads=True,
-                manage_webhooks=True,
-                mention_everyone=True,
-                moderate_members=True,
-            )
-        ).value == 0
+        return (role.permissions.value & _DANGEROUS_PERMISSIONS_VALUE) == 0
