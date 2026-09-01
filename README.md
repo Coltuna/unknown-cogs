@@ -22,6 +22,7 @@ Install the desired cog(s):
 ```ini
 [p]cog install unknown-cogs decancer
 [p]cog install unknown-cogs selfrole
+[p]cog install unknown-cogs emojitracker
 ```
 
 ### Loading Cogs
@@ -29,6 +30,7 @@ Load the installed cog(s):
 ```ini
 [p]load decancer
 [p]load selfrole
+[p]load emojitracker
 ```
 
 ---
@@ -61,6 +63,38 @@ A sleek self-assignable role system designed with Discord Slash Commands for end
   - `[p]selfroleset remove <role|role_id>`: Remove a role from the self-assignable roles list (supports role ID in case a role was already deleted).
   - `[p]selfroleset allow_dangerous_role <true|false>`: Enable or disable allowing roles with elevated permissions to be made self-assignable (Guild Owner / Admin only).
   - `[p]selfroleset list`: View the configured self-assignable roles and dangerous role status.
+
+---
+
+### 3. EmojiTracker
+Track custom emoji, unicode emoji, and sticker usage in your server with real-time statistics, leaderboards, user analytics, and unused asset detection.
+
+- **User & Stats Commands (Prefix Text Commands):**
+  - `[p]emojitrack server` (Aliases: `stats`, `overview`): View server-wide emoji and sticker statistics.
+  - `[p]emojitrack emojis [server_only]`: View leaderboard of most used emojis (interactive button pagination).
+  - `[p]emojitrack leastemojis [server_only]`: View least used emojis in the server.
+  - `[p]emojitrack unusedemojis`: List custom emojis belonging to this server with 0 recorded uses (helps free emoji slots).
+  - `[p]emojitrack stickers [server_only]`: View leaderboard of most used stickers.
+  - `[p]emojitrack leaststickers` & `[p]emojitrack unusedstickers`: View least used and unused stickers.
+  - `[p]emojitrack emoji <emoji>`: In-depth usage breakdown for a specific emoji (messages, reactions, top users, last used date).
+  - `[p]emojitrack sticker <sticker>`: In-depth usage breakdown for a specific sticker.
+  - `[p]emojitrack user [member]`: View emoji and sticker stats for a specific user.
+
+- **User Commands (Slash Commands):**
+  - `/emojistats server`: View server-wide emoji and sticker overview.
+  - `/emojistats emojis [server_only]`: View top emojis in the server.
+  - `/emojistats stickers [server_only]`: View top stickers in the server.
+  - `/emojistats unused <Emojis|Stickers>`: View unused server emojis or stickers.
+  - `/emojistats user [member]`: View emoji and sticker statistics for yourself or a member.
+
+- **Admin Commands (Prefix Text Commands):**
+  - `[p]emojitrackset toggle [true|false]`: Enable or disable tracking for the server.
+  - `[p]emojitrackset trackunicode [true|false]`: Toggle tracking standard Unicode emojis.
+  - `[p]emojitrackset ignorebots [true|false]`: Toggle ignoring bot messages and reactions.
+  - `[p]emojitrackset ignorechannel <add|remove|list> [channel]`: Ignore specific channels from being tracked.
+  - `[p]emojitrackset ignorerole <add|remove|list> [role]`: Ignore specific roles from being tracked.
+  - `[p]emojitrackset reset <all|emojis|stickers>`: Reset recorded tracking data after interactive confirmation.
+  - `[p]emojitrackset showsettings`: View active configuration and tracking statistics summary.
 
 ---
 

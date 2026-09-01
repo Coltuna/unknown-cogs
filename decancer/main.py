@@ -10,8 +10,9 @@ import discord
 from datetime import datetime, timezone, timedelta
 from redbot.core import Config, checks, commands, modlog
 from redbot.core.bot import Red
-from redbot.core.utils.chat_formatting import box, humanize_timedelta
+from redbot.core.utils.chat_formatting import bold, box, humanize_list, humanize_number, humanize_timedelta, inline
 from redbot.core.utils.menus import start_adding_reactions
+from redbot.core.utils.mod import get_audit_reason
 from redbot.core.utils.predicates import ReactionPredicate
 
 from .randomnick import properNouns
@@ -39,7 +40,7 @@ class Decancer(commands.Cog):
 
     def format_help_for_context(self, ctx: commands.Context):
         helpcmd = super().format_help_for_context(ctx)
-        txt = "Version: {}\nAuthor: {}".format(self.__version__, ", ".join(self.__author__))
+        txt = f"Version: {self.__version__}\nAuthor: {humanize_list(self.__author__)}"
         return f"{helpcmd}\n\n{txt}"
 
     async def red_delete_data_for_user(self, *args, **kwargs):
@@ -160,7 +161,8 @@ class Decancer(commands.Cog):
             if old_nick == new_nick:
                 return await ctx.send("The nickname is already decancered.")
             try:
-                await target.edit(reason=f"Nickname decancered by {ctx.author.name}", nick=new_nick)
+                audit_reason = get_audit_reason(ctx.guild, reason="Nickname decancered", author=ctx.author)
+                await target.edit(reason=audit_reason, nick=new_nick)
                 await ctx.send(f"({old_nick}) was changed to {new_nick}")
                 await self.decancer_log(ctx.guild, target, ctx.author, old_nick, new_nick, "decancer")
             except discord.Forbidden:
@@ -180,15 +182,15 @@ class Decancer(commands.Cog):
             and (ctx.author == ctx.guild.owner or ctx.author.top_role > member.top_role)
         ]
         if not cancerous_list:
-            return await ctx.send(f"There's no one I can decancer in **`{role.name}`**.")
+            return await ctx.send(f"There's no one I can decancer in {bold(inline(role.name))}.")
 
         member_preview = "\n".join(
             f"{member} - {member.id}" for index, member in enumerate(cancerous_list, 1) if index <= 10
-        ) + (f"\nand {len(cancerous_list) - 10} other members.." if len(cancerous_list) > 10 else "")
+        ) + (f"\nand {humanize_number(len(cancerous_list) - 10)} other members.." if len(cancerous_list) > 10 else "")
 
         case = "" if len(cancerous_list) == 1 else "s"
         msg = await ctx.send(
-            f"Are you sure you want me to decancer the following {len(cancerous_list)} member{case} in **`{role.name}`**?\n"
+            f"Are you sure you want me to decancer the following {humanize_number(len(cancerous_list))} member{case} in {bold(inline(role.name))}?\n"
             + box(member_preview, "py")
         )
         start_adding_reactions(msg, ReactionPredicate.YES_OR_NO_EMOJIS)
@@ -199,7 +201,7 @@ class Decancer(commands.Cog):
             return await ctx.send("Action cancelled.")
         if pred.result is True:
             await ctx.send(
-                f"Ok. This will take around **{humanize_timedelta(timedelta=timedelta(seconds=len(cancerous_list) * 1.5))}**."
+                f"Ok. This will take around {bold(humanize_timedelta(timedelta=timedelta(seconds=len(cancerous_list) * 1.5)))}."
             )
             default_name = await self.config.guild(guild).new_custom_nick()
             async with ctx.typing():
@@ -209,8 +211,13 @@ class Decancer(commands.Cog):
                     new_nick = await self.nick_maker(guild, member.display_name, default_name=default_name)
                     if old_nick.lower() != new_nick.lower():
                         try:
-                            await member.edit(
+                            audit_reason = get_audit_reason(
+                                ctx.guild,
                                 reason=f"Dehoist | Old name ({old_nick}): contained special characters",
+                                author=ctx.author,
+                            )
+                            await member.edit(
+                                reason=audit_reason,
                                 nick=new_nick,
                             )
                             await self.decancer_log(
@@ -265,7 +272,7 @@ class Decancer(commands.Cog):
         Pass `random` to assign a random name from the built-in noun list.
         """
         await self.config.guild(ctx.guild).new_custom_nick.set(name)
-        await ctx.send(f"Fallback nickname set to: `{name}`.")
+        await ctx.send(f"Fallback nickname set to: {inline(name)}.")
 
     @commands.guild_only()
     @checks.bot_has_permissions(embed_links=True)
@@ -302,8 +309,12 @@ class Decancer(commands.Cog):
         new_cool_nick = await self.nick_maker(guild, old_nick)
         if old_nick.lower() != new_cool_nick.lower():
             try:
-                await member.edit(
+                audit_reason = get_audit_reason(
+                    guild,
                     reason=f"Auto Decancer | Old name ({old_nick}): contained special characters",
+                )
+                await member.edit(
+                    reason=audit_reason,
                     nick=new_cool_nick,
                 )
                 await self.decancer_log(guild, member, guild.me, old_nick, new_cool_nick, "auto-decancer")

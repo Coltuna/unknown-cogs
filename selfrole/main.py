@@ -5,7 +5,8 @@ import typing
 import discord
 from redbot.core import Config, app_commands, checks, commands
 from redbot.core.bot import Red
-from redbot.core.utils.chat_formatting import box
+from redbot.core.utils.chat_formatting import bold, box, inline
+from redbot.core.utils.mod import get_audit_reason
 
 log = logging.getLogger("red.unknown.selfrole")
 
@@ -47,7 +48,7 @@ class SelfRole(commands.Cog):
 
     def format_help_for_context(self, ctx: commands.Context):
         helpcmd = super().format_help_for_context(ctx)
-        txt = "Version: {}\nAuthor: {}".format(self.__version__, self.__author__)
+        txt = f"Version: {self.__version__}\nAuthor: {self.__author__}"
         return f"{helpcmd}\n\n{txt}"
 
     async def red_delete_data_for_user(self, *args, **kwargs):
@@ -121,8 +122,11 @@ class SelfRole(commands.Cog):
                 "I do not have sufficient permissions or role hierarchy to assign that role.", ephemeral=True
             )
         try:
-            await interaction.user.add_roles(role, reason="SelfRole slash command")
-            await interaction.response.send_message(f"Added the {role.name} role.", ephemeral=True)
+            audit_reason = get_audit_reason(
+                interaction.guild, reason="SelfRole slash command", author=interaction.user
+            )
+            await interaction.user.add_roles(role, reason=audit_reason)
+            await interaction.response.send_message(f"Added the {bold(role.name)} role.", ephemeral=True)
         except discord.Forbidden:
             await interaction.response.send_message("I do not have permission to add that role.", ephemeral=True)
         except discord.HTTPException as ex:
@@ -144,8 +148,11 @@ class SelfRole(commands.Cog):
                 "I do not have sufficient permissions or role hierarchy to remove that role.", ephemeral=True
             )
         try:
-            await interaction.user.remove_roles(role, reason="SelfRole slash command")
-            await interaction.response.send_message(f"Removed the {role.name} role.", ephemeral=True)
+            audit_reason = get_audit_reason(
+                interaction.guild, reason="SelfRole slash command", author=interaction.user
+            )
+            await interaction.user.remove_roles(role, reason=audit_reason)
+            await interaction.response.send_message(f"Removed the {bold(role.name)} role.", ephemeral=True)
         except discord.Forbidden:
             await interaction.response.send_message("I do not have permission to remove that role.", ephemeral=True)
         except discord.HTTPException as ex:
@@ -183,19 +190,19 @@ class SelfRole(commands.Cog):
 
         if not self.pass_member_hierarchy_check(ctx.author, ctx.guild, role):
             return await ctx.send(
-                f"I cannot let you add **{role.name}** as a selfrole because that role is higher than or equal to your highest role in the Discord hierarchy."
+                f"I cannot let you add {bold(role.name)} as a selfrole because that role is higher than or equal to your highest role in the Discord hierarchy."
             )
 
         if not guild_data.get("allow_dangerous_role", False) and not self.pass_dangerous_role_check(role):
             return await ctx.send(
-                f"**{role.name}** has dangerous permissions. If you really wish to make this role self-assignable, please enable the setting via `{ctx.prefix}selfroleset allow_dangerous_role true`."
+                f"{bold(role.name)} has dangerous permissions. If you really wish to make this role self-assignable, please enable the setting via {inline(f'{ctx.prefix}selfroleset allow_dangerous_role true')}."
             )
 
         roles = list(guild_data.get("roles", []))
         roles.append(role.id)
         guild_data["roles"] = roles
         await self.config.guild(ctx.guild).roles.set(roles)
-        await ctx.send(f"**{role.name}** is now added to the self-assignable roles list.")
+        await ctx.send(f"{bold(role.name)} is now added to the self-assignable roles list.")
 
     @selfroleset.command(name="remove")
     async def selfroleset_remove(self, ctx: commands.Context, *, role: typing.Union[discord.Role, int]) -> None:
@@ -211,12 +218,12 @@ class SelfRole(commands.Cog):
         role_name = role.name if isinstance(role, discord.Role) else f"ID {role}"
 
         if role_id not in roles:
-            return await ctx.send(f"**{role_name}** is not in the self-assignable roles list.")
+            return await ctx.send(f"{bold(role_name)} is not in the self-assignable roles list.")
 
         roles.remove(role_id)
         guild_data["roles"] = roles
         await self.config.guild(ctx.guild).roles.set(roles)
-        await ctx.send(f"**{role_name}** has been removed from the self-assignable roles list.")
+        await ctx.send(f"{bold(role_name)} has been removed from the self-assignable roles list.")
 
     @checks.guildowner_or_permissions(administrator=True)
     @selfroleset.command(name="allow_dangerous_role", aliases=["allowdangerous"])
@@ -228,9 +235,9 @@ class SelfRole(commands.Cog):
         guild_data["allow_dangerous_role"] = status
         await self.config.guild(ctx.guild).allow_dangerous_role.set(status)
         if status:
-            await ctx.send("Addition of dangerous roles is now **enabled**.")
+            await ctx.send(f"Addition of dangerous roles is now {bold('enabled')}.")
         else:
-            await ctx.send("Addition of dangerous roles is now **disabled**.")
+            await ctx.send(f"Addition of dangerous roles is now {bold('disabled')}.")
 
     @selfroleset.command(name="list")
     async def selfroleset_admin_list(self, ctx: commands.Context) -> None:

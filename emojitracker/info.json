@@ -1,0 +1,14 @@
+{
+  "author": ["unknown.in"],
+  "description": "Track sticker and emoji usage in your server with real-time statistics, leaderboards, and unused asset detection.",
+  "disabled": false,
+  "end_user_data_statement": "This cog stores emoji and sticker usage counts per server and per user.",
+  "hidden": false,
+  "install_msg": "Thank you for installing EmojiTracker! Use `[p]emojitrack` for statistics and `[p]emojitrackset` to configure tracking settings.",
+  "min_bot_version": "3.5.10",
+  "min_python_version": [3, 10, 0],
+  "required_cogs": {},
+  "short": "Track sticker and emoji usage with statistics, leaderboards, and unused asset detection.",
+  "tags": ["emoji", "sticker", "tracker", "stats", "utility"],
+  "type": "COG"
+}
