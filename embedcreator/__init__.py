@@ -3,7 +3,7 @@ from redbot.core.utils import get_end_user_data_statement
 
 from .embedcreator import EmbedCreator
 
-__author__ = ["Kreusada", "unknown.in"]
+__author__ = ["unknown.in", "Kreusada"]
 __version__ = "2.0.0"
 __red_end_user_data_statement__ = get_end_user_data_statement(__file__)
 

@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import io
 import json
 import logging
@@ -10,8 +11,7 @@ import discord
 from redbot.core import Config, app_commands, checks, commands
 from redbot.core.bot import Red
 from redbot.core.utils.chat_formatting import bold, box, humanize_list, humanize_number, inline, pagify
-from redbot.core.utils.menus import DEFAULT_CONTROLS, menu, start_adding_reactions
-from redbot.core.utils.predicates import ReactionPredicate
+from redbot.core.utils.views import ConfirmView, SimpleMenu
 
 log = logging.getLogger("red.unknown.emojitracker")
 
@@ -426,11 +426,30 @@ class EmojiTracker(commands.Cog):
 
         pages = self._create_embed_pages(title, lines, color, per_page=per_page, empty_msg=empty_msg)
 
+        if len(pages) == 1:
+            if isinstance(ctx, commands.Context):
+                return await ctx.send(embed=pages[0])
+            if not ctx.response.is_done():
+                return await ctx.response.send_message(embed=pages[0])
+            return await ctx.followup.send(embed=pages[0])
+
+        simple_menu = SimpleMenu(
+            pages,
+            disable_after_timeout=True,
+            use_select_menu=(len(pages) > 2),
+        )
+
         if isinstance(ctx, commands.Context):
-            await menu(ctx, pages, DEFAULT_CONTROLS)
+            await simple_menu.start(ctx)
         else:
-            # Slash commands: send the first page (menu() only supports commands.Context)
-            await ctx.response.send_message(embed=pages[0])
+            simple_menu.author = ctx.user
+            kwargs = await simple_menu.get_page(0)
+            if not ctx.response.is_done():
+                await ctx.response.send_message(**kwargs)
+                simple_menu.message = await ctx.original_response()
+            else:
+                msg = await ctx.followup.send(**kwargs)
+                simple_menu.message = msg
 
     # -------------------------------------------------------------------------
     # User / Statistics Text Commands
@@ -601,6 +620,105 @@ class EmojiTracker(commands.Cog):
         await self._send_paginated_embed(
             ctx, title, lines, per_page=15, empty_msg="🎉 Great news! All server emojis have been used at least once."
         )
+
+    async def _list_emojis_impl(
+        self,
+        ctx: commands.Context | discord.Interaction,
+        sort_by: str = "name",
+    ) -> None:
+        guild = ctx.guild
+        emojis_list = list(guild.emojis)
+        if not emojis_list:
+            msg = "This server does not have any custom emojis."
+            if isinstance(ctx, discord.Interaction):
+                return await ctx.response.send_message(msg, ephemeral=True)
+            return await ctx.send(msg)
+
+        guild_data = self._get_guild_data(guild.id)
+        tracked_emojis = guild_data.get("emojis", {})
+
+        sort_lower = (sort_by or "name").strip().lower()
+        if sort_lower in ("uses", "use", "usage", "top", "most"):
+            emojis_list.sort(key=lambda e: tracked_emojis.get(str(e.id), {}).get("total", 0), reverse=True)
+            sort_label = "Most Used"
+        elif sort_lower in ("least", "leastused", "bottom"):
+            emojis_list.sort(key=lambda e: tracked_emojis.get(str(e.id), {}).get("total", 0))
+            sort_label = "Least Used"
+        elif sort_lower in ("recent", "newest", "created", "date"):
+            emojis_list.sort(key=lambda e: e.created_at or discord.utils.snowflake_time(e.id), reverse=True)
+            sort_label = "Recently Added"
+        elif sort_lower in ("oldest", "first"):
+            emojis_list.sort(key=lambda e: e.created_at or discord.utils.snowflake_time(e.id))
+            sort_label = "Oldest Added"
+        elif sort_lower in ("id", "snowflake"):
+            emojis_list.sort(key=lambda e: e.id)
+            sort_label = "By ID"
+        elif sort_lower in ("name", "alpha", "alphabetical"):
+            emojis_list.sort(key=lambda e: e.name.lower())
+            sort_label = "Alphabetical"
+        else:
+            emojis_list.sort(key=lambda e: e.name.lower())
+            sort_label = "Alphabetical"
+
+        lines = []
+        for idx, e in enumerate(emojis_list, 1):
+            data = tracked_emojis.get(str(e.id), {})
+            tot = data.get("total", 0)
+            msg_cnt = data.get("messages", 0)
+            rxn_cnt = data.get("reactions", 0)
+
+            anim_tag = " `[Anim]`" if e.animated else ""
+            if tot > 0:
+                usage_str = f"{bold(humanize_number(tot))} uses ({humanize_number(msg_cnt)} msgs, {humanize_number(rxn_cnt)} rxns)"
+            else:
+                usage_str = "0 uses (unused)"
+
+            lines.append(
+                f"{inline(f'#{idx:02d}')} {e} {bold(e.name)} ({inline(f':{e.name}:')}){anim_tag} • ID: {inline(str(e.id))} — {usage_str}"
+            )
+
+        static_count = sum(1 for e in emojis_list if not e.animated)
+        anim_count = len(emojis_list) - static_count
+        title = f"📋 Server Emojis ({len(emojis_list)} Total: {static_count} Static, {anim_count} Animated) [{sort_label}] • {guild.name}"
+        await self._send_paginated_embed(ctx, title, lines, per_page=15, empty_msg="This server does not have any custom emojis.")
+
+    @commands.guild_only()
+    @emojitrack.command(name="list", aliases=["listemojis", "emojislist", "all", "allemojis"])
+    async def emojitrack_list(
+        self,
+        ctx: commands.Context,
+        sort_by: str = "name",
+    ) -> None:
+        """
+        List all custom emojis in this server with their names, IDs, and usage stats.
+
+        Optionally sort by:
+        - `name` (default, alphabetical)
+        - `uses` (highest usage first)
+        - `least` (lowest usage first)
+        - `recent` (most recently added first)
+        - `id` (by Discord snowflake ID)
+        """
+        await self._list_emojis_impl(ctx, sort_by)
+
+    @commands.guild_only()
+    @commands.command(name="emojilist", aliases=["listemojis", "serveremojis"])
+    async def emojilist(
+        self,
+        ctx: commands.Context,
+        sort_by: str = "name",
+    ) -> None:
+        """
+        List all custom emojis in this server with their names, IDs, and usage stats.
+
+        Optionally sort by:
+        - `name` (default, alphabetical)
+        - `uses` (highest usage first)
+        - `least` (lowest usage first)
+        - `recent` (most recently added first)
+        - `id` (by Discord snowflake ID)
+        """
+        await self._list_emojis_impl(ctx, sort_by)
 
     @commands.guild_only()
     @emojitrack.command(name="stickers", aliases=["topstickers", "stickertop"])
@@ -1023,6 +1141,26 @@ class EmojiTracker(commands.Cog):
         title = f"🏆 Top Emojis ({filter_text}) • {guild.name}"
         await self._send_paginated_embed(interaction, title, lines, per_page=10, empty_msg="No emoji usage recorded yet.")
 
+    @emojistats.command(name="list", description="List all emojis in this server with their names and stats.")
+    @app_commands.describe(sort_by="Sort emojis by name, uses, recently added, or ID (default: name)")
+    @app_commands.choices(
+        sort_by=[
+            app_commands.Choice(name="Alphabetical (Name)", value="name"),
+            app_commands.Choice(name="Most Used", value="uses"),
+            app_commands.Choice(name="Least Used", value="least"),
+            app_commands.Choice(name="Recently Added", value="recent"),
+            app_commands.Choice(name="Emoji ID", value="id"),
+        ]
+    )
+    @app_commands.guild_only()
+    async def slash_list(
+        self,
+        interaction: discord.Interaction,
+        sort_by: app_commands.Choice[str] | None = None,
+    ) -> None:
+        sort_val = sort_by.value if sort_by else "name"
+        await self._list_emojis_impl(interaction, sort_val)
+
     @emojistats.command(name="stickers", description="View top stickers in this server.")
     @app_commands.describe(server_only="Whether to show only stickers uploaded to this server (default True)")
     @app_commands.guild_only()
@@ -1312,18 +1450,15 @@ class EmojiTracker(commands.Cog):
 
         Scopes: `all`, `emojis`, `stickers`.
         """
-        msg = await ctx.send(
+        view = ConfirmView(ctx.author, disable_buttons=True)
+        view.message = await ctx.send(
             f"⚠️ **Warning**: Are you sure you want to completely reset **{scope}** usage data for this server?\n"
-            "This action is permanent and cannot be undone."
+            "This action is permanent and cannot be undone.",
+            view=view,
         )
-        start_adding_reactions(msg, ReactionPredicate.YES_OR_NO_EMOJIS)
-        pred = ReactionPredicate.yes_or_no(msg, ctx.author)
-        try:
-            await self.bot.wait_for("reaction_add", check=pred, timeout=30.0)
-        except asyncio.TimeoutError:
-            return await ctx.send("Reset action timed out and was cancelled.")
+        await view.wait()
 
-        if pred.result is True:
+        if view.result is True:
             guild_data = self._get_guild_data(ctx.guild.id)
             if scope in ("all", "emojis"):
                 guild_data["emojis"] = {}
