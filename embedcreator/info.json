@@ -1,0 +1,29 @@
+{
+    "author": [
+        "unknown.in",
+        "Kreusada"
+    ],
+    "description": "Create rich embeds and modern Discord Components V2 containers using interactive buttons, modals, and dropdowns!",
+    "disabled": false,
+    "end_user_data_statement": "This cog does not persistently store data or metadata about users.",
+    "hidden": false,
+    "install_msg": "Thanks for installing EmbedCreator! You can now create both traditional Discord embeds ([p]embedcreate) and modern Components V2 containers ([p]containercreate).",
+    "name": "EmbedCreator",
+    "required_cogs": {},
+    "requirements": [
+        "discord.py>=2.6.0"
+    ],
+    "short": "Create embeds and Components V2 containers using buttons and modals!",
+    "tags": [
+        "Embeds",
+        "Containers",
+        "Components V2",
+        "Create",
+        "Buttons",
+        "Modals",
+        "Dropdowns",
+        "Selects",
+        "LayoutView"
+    ],
+    "type": "COG"
+}
